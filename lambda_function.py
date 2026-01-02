@@ -20,6 +20,36 @@ SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')
 DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE', 'FLAGProcessingTimes')
 FLAG_URL = 'https://flag.dol.gov/processingtimes'
 
+# Example: Your LC Priority Date 
+MY_LC_DATE = "October 2024"
+
+def parse_date_to_comparable(date_str):
+    """
+    Convert date string like 'October 2024' to comparable format (2024, 10)
+    Returns tuple (year, month) for comparison
+    """
+    try:
+        months = {
+            'january': 1, 'february': 2, 'march': 3, 'april': 4,
+            'may': 5, 'june': 6, 'july': 7, 'august': 8,
+            'september': 9, 'october': 10, 'november': 11, 'december': 12
+        }
+        parts = date_str.strip().lower().split()
+        month = months.get(parts[0], 0)
+        year = int(parts[1])
+        return (year, month)
+    except:
+        return (0, 0)
+
+def is_date_current_or_past(current_analyst_date, my_date):
+    """
+    Check if the analyst review date has reached or passed my LC date
+    Returns True if my_date is now current (analyst date >= my_date)
+    """
+    analyst = parse_date_to_comparable(current_analyst_date)
+    mine = parse_date_to_comparable(my_date)
+    return analyst >= mine
+
 def get_current_analyst_date():
     """
     Scrape the FLAG website to get the current Analyst Review date
@@ -127,18 +157,60 @@ def lambda_handler(event, context):
     # Get previous date from DynamoDB
     previous_date = get_previous_date()
     
+    # Check if MY LC date is now current!
+    my_date_is_current = is_date_current_or_past(current_date, MY_LC_DATE)
+    
     # Check if date has changed
     if previous_date != current_date:
         # Date has changed!
         if previous_date:
-            subject = "🎉 FLAG Analyst Review Date UPDATED!"
-            message = f"""
+            # Check if this change made MY date current
+            if my_date_is_current:
+                subject = "🎉🎊 HOORAY! Your LC Date is NOW CURRENT! 🎊🎉"
+                message = f"""
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   🎉🎉🎉 CONGRATULATIONS! 🎉🎉🎉                            ║
+║                                                              ║
+║   YOUR LC DATE IS NOW CURRENT!                               ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+FLAG DOL Processing Times Update
+
+✅ The Analyst Review date has reached YOUR priority date!
+
+Your LC Date: {MY_LC_DATE}
+Current Analyst Review Date: {current_date}
+Previous Date: {previous_date}
+
+🚀 This means your PERM application should now be in the 
+   queue for processing!
+
+NEXT STEPS:
+1. Keep an eye on your email for any RFE (Request for Evidence)
+2. Check your PERM case status regularly
+3. Coordinate with your attorney/HR
+
+Check the full details at:
+{FLAG_URL}
+
+Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+
+🎊 Best of luck with your green card journey! 🎊
+                """
+            else:
+                subject = "🎉 FLAG Analyst Review Date UPDATED!"
+                message = f"""
 FLAG DOL Processing Times Update Alert
 
 ✅ The Analyst Review date has MOVED!
 
 Previous Date: {previous_date}
 New Date: {current_date}
+Your LC Date: {MY_LC_DATE}
+
+📊 Progress: The date is getting closer to your LC date!
 
 This means PERM applications are being processed faster!
 
@@ -146,14 +218,20 @@ Check the full details at:
 {FLAG_URL}
 
 Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
-            """
+                """
         else:
             # First time running
-            subject = "FLAG Monitor Started"
-            message = f"""
+            if my_date_is_current:
+                subject = "🎉 FLAG Monitor Started - Your LC Date is ALREADY Current!"
+                message = f"""
 FLAG DOL Processing Times Monitor is now active!
 
+🎊 GREAT NEWS: Your LC date is ALREADY current!
+
+Your LC Date: {MY_LC_DATE}
 Current Analyst Review Date: {current_date}
+
+Your PERM application should already be in the processing queue!
 
 You will receive notifications:
 - Every day at 6 AM and 6 PM (status update)
@@ -162,7 +240,24 @@ You will receive notifications:
 Check the site at: {FLAG_URL}
 
 Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
-            """
+                """
+            else:
+                subject = "FLAG Monitor Started"
+                message = f"""
+FLAG DOL Processing Times Monitor is now active!
+
+Current Analyst Review Date: {current_date}
+Your LC Date: {MY_LC_DATE}
+
+You will receive notifications:
+- Every day at 6 AM and 6 PM (status update)
+- Immediately when the date changes
+- Special alert when your LC date becomes current!
+
+Check the site at: {FLAG_URL}
+
+Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+                """
         
         # Save new date
         save_current_date(current_date)
@@ -173,28 +268,53 @@ Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
             'body': json.dumps({
                 'message': 'Date changed',
                 'previous': previous_date,
-                'current': current_date
+                'current': current_date,
+                'my_lc_date': MY_LC_DATE,
+                'my_date_is_current': my_date_is_current
             })
         }
     
     else:
         # Date hasn't changed - send regular status update
-        subject = "FLAG Monitor Status: No Change"
-        message = f"""
+        if my_date_is_current:
+            subject = "FLAG Monitor: Your LC Date is Current ✅"
+            message = f"""
 FLAG DOL Processing Times - Daily Check
 
-📊 Current Status:
+🎉 REMINDER: Your LC date is CURRENT!
+
+Your LC Date: {MY_LC_DATE}
 Analyst Review Date: {current_date}
 Status: No change since last check
 
-The date is still processing PERM applications filed in {current_date}.
+Your application should be in the processing queue.
+Keep checking for any updates from DOL!
 
 Next check: In 12 hours
 
 Check the site at: {FLAG_URL}
 
 Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
-        """
+            """
+        else:
+            subject = "FLAG Monitor Status: No Change"
+            message = f"""
+FLAG DOL Processing Times - Daily Check
+
+📊 Current Status:
+Analyst Review Date: {current_date}
+Your LC Date: {MY_LC_DATE}
+Status: No change since last check
+
+The date is still processing PERM applications filed in {current_date}.
+Waiting for it to reach {MY_LC_DATE}...
+
+Next check: In 12 hours
+
+Check the site at: {FLAG_URL}
+
+Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+            """
         
         send_notification(subject, message)
         
@@ -202,6 +322,8 @@ Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
             'statusCode': 200,
             'body': json.dumps({
                 'message': 'No change',
-                'current': current_date
+                'current': current_date,
+                'my_lc_date': MY_LC_DATE,
+                'my_date_is_current': my_date_is_current
             })
         }
