@@ -1,23 +1,28 @@
 # FLAG Monitor - Complete Deployment Guide
 ## Automated FLAG DOL Processing Times Monitor
 
+> Serverless AWS Lambda monitor that scrapes FLAG DOL processing times, stores data in DynamoDB, and sends email alerts via SNS when dates change — fully deployed with Terraform.
+
 ---
 
 ## 📋 Table of Contents
 
 1. [What This Does](#what-this-does)
-2. [Prerequisites](#prerequisites)
-3. [Step 1: Install Required Tools](#step-1-install-required-tools)
-4. [Step 2: Setup AWS Credentials](#step-2-setup-aws-credentials)
-5. [Step 3: Configure Your Settings](#step-3-configure-your-settings)
-6. [Step 4: Build Lambda Package](#step-4-build-lambda-package)
-7. [Step 5: Deploy with Terraform](#step-5-deploy-with-terraform)
-8. [Step 6: Confirm Email Subscription](#step-6-confirm-email-subscription)
-9. [Step 7: Test Everything](#step-7-test-everything)
-10. [What Gets Created](#what-gets-created)
-11. [Daily Operations](#daily-operations)
-12. [Troubleshooting](#troubleshooting)
-13. [Updating & Maintenance](#updating--maintenance)
+2. [Architecture](#architecture)
+3. [Prerequisites](#prerequisites)
+4. [Step 1: Install Required Tools](#step-1-install-required-tools)
+5. [Step 2: Setup AWS Credentials](#step-2-setup-aws-credentials)
+6. [Step 3: Configure Your Settings](#step-3-configure-your-settings)
+7. [Step 4: Build Lambda Package](#step-4-build-lambda-package)
+8. [Step 5: Deploy with Terraform](#step-5-deploy-with-terraform)
+9. [Step 6: Confirm Email Subscription](#step-6-confirm-email-subscription)
+10. [Step 7: Test Everything](#step-7-test-everything)
+11. [API Gateway - Manual Trigger](#api-gateway---manual-trigger)
+12. [What Gets Created](#what-gets-created)
+13. [Daily Operations](#daily-operations)
+14. [Troubleshooting](#troubleshooting)
+15. [Updating & Maintenance](#updating--maintenance)
+16. [Cost Breakdown](#cost-breakdown)
 
 ---
 
@@ -27,15 +32,36 @@ This system automatically monitors the FLAG DOL Analyst Review processing date a
 
 **Features:**
 - ✅ Checks FLAG website twice daily (6 AM & 6 PM)
-- ✅ Sends notification when date changes from "August 2024"
+- ✅ Sends notification when date changes
 - ✅ Sends daily status updates (so you know it's working)
+- ✅ Manual trigger via API Gateway URL (trigger from phone/browser)
 - ✅ Completely automated - set it and forget it
 - ✅ Costs less than $0.10/month
 
 **What You're Monitoring:**
 - Website: https://flag.dol.gov/processingtimes
 - Specific field: **Analyst Review** date
-- Current value: **August 2024** (as of your screenshot)
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         TRIGGERS                                 │
+├─────────────────────────────────────────────────────────────────┤
+│  EventBridge (6AM) ──┐                                          │
+│  EventBridge (6PM) ──┼──▶  Lambda Function  ◀── API Gateway     │
+│  API Gateway URL  ───┘     (Python code)        (manual trigger)│
+└─────────────────────────────────────────────────────────────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    ▼              ▼              ▼
+              ┌──────────┐  ┌──────────┐  ┌──────────────┐
+              │ DynamoDB │  │   SNS    │  │  CloudWatch  │
+              │ (storage)│  │ (email)  │  │   (logs)     │
+              └──────────┘  └──────────┘  └──────────────┘
+```
 
 ---
 
@@ -88,16 +114,9 @@ terraform version
 #### On Linux:
 
 ```bash
-# Download Terraform
 wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
-
-# Extract
 unzip terraform_1.6.6_linux_amd64.zip
-
-# Move to system path
 sudo mv terraform /usr/local/bin/
-
-# Verify
 terraform version
 ```
 
@@ -121,8 +140,6 @@ The AWS CLI lets Terraform communicate with your AWS account.
 
 ```bash
 brew install awscli
-
-# Verify
 aws --version
 ```
 
@@ -132,8 +149,6 @@ aws --version
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip
 sudo ./aws/install
-
-# Verify
 aws --version
 ```
 
@@ -144,9 +159,7 @@ aws --version
 Python is needed to build the Lambda function package.
 
 ```bash
-# Check version
 python3 --version
-
 # Should show Python 3.8 or higher
 ```
 
@@ -162,39 +175,24 @@ python3 --version
 
 **Time: 10 minutes**
 
-This is how Terraform will authenticate to your AWS account.
-
 ### 2.1: Get AWS Access Keys
 
 1. **Login to AWS Console**: https://console.aws.amazon.com/
-
 2. **Click your username** (top right corner)
-
 3. Click **"Security credentials"**
-
 4. Scroll down to **"Access keys"** section
-
 5. Click **"Create access key"**
-
 6. Choose **"Command Line Interface (CLI)"**
-
-7. Check the confirmation box: "I understand..."
-
+7. Check the confirmation box
 8. Click **"Create access key"**
-
-9. **IMPORTANT**: You'll see two values:
+9. **Copy both values:**
    - **Access key ID** (looks like: `AKIAIOSFODNN7EXAMPLE`)
    - **Secret access key** (looks like: `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`)
-
-10. **Copy both values** - you'll need them in the next step
-
-11. Click **"Download .csv file"** (backup - keep this safe!)
+10. Click **"Download .csv file"** (backup - keep this safe!)
 
 ---
 
 ### 2.2: Configure AWS CLI
-
-Open your terminal/command prompt and run:
 
 ```bash
 aws configure
@@ -208,8 +206,6 @@ AWS Secret Access Key [None]: <paste your Secret Access Key>
 Default region name [None]: us-east-1
 Default output format [None]: json
 ```
-
-**Press Enter after each line.**
 
 ---
 
@@ -230,54 +226,13 @@ Should show something like:
 
 ✅ **If you see this, you're ready to proceed!**
 
-❌ **If you get an error**, double-check your access keys and try `aws configure` again.
-
 ---
 
 ## Step 3: Configure Your Settings
 
 **Time: 5 minutes**
 
-### 3.1: Extract the Project Files
-
-1. Extract the ZIP file you downloaded
-2. You should have a folder with these files:
-   ```
-   flag_monitor_complete/
-   ├── main.tf
-   ├── variables.tf
-   ├── outputs.tf
-   ├── terraform.tfvars.example
-   ├── lambda_function.py
-   ├── requirements.txt
-   ├── build.sh (Linux/Mac)
-   ├── build.bat (Windows)
-   ├── .gitignore
-   └── README.md (this file)
-   ```
-
----
-
-### 3.2: Open Terminal in Project Folder
-
-**On Windows:**
-1. Open the folder in File Explorer
-2. Type `cmd` in the address bar
-3. Press Enter
-
-**On Mac:**
-1. Open Terminal
-2. Type: `cd ` (with a space after cd)
-3. Drag the folder into Terminal
-4. Press Enter
-
-**On Linux:**
-1. Open Terminal
-2. Navigate: `cd /path/to/flag_monitor_complete`
-
----
-
-### 3.3: Create Configuration File
+### 3.1: Create Configuration File
 
 ```bash
 # Copy the example file
@@ -287,77 +242,37 @@ cp terraform.tfvars.example terraform.tfvars
 copy terraform.tfvars.example terraform.tfvars
 ```
 
----
-
-### 3.4: Edit Configuration
+### 3.2: Edit Configuration
 
 Open `terraform.tfvars` in any text editor:
 
-**Windows:** `notepad terraform.tfvars`
-**Mac/Linux:** `nano terraform.tfvars` or `vim terraform.tfvars`
+```bash
+# Windows
+notepad terraform.tfvars
 
----
+# Mac/Linux
+nano terraform.tfvars
+```
 
-### 3.5: Set Your Email (REQUIRED!)
+### 3.3: Set Your Email (REQUIRED!)
 
-Find this line:
+Change this line:
 ```hcl
 notification_email = "your-email@example.com"
 ```
 
-Change it to your actual email:
-```hcl
-notification_email = "bickey@gmail.com"
-```
+### 3.4: Adjust Timezone (If Not Eastern Time)
 
----
+Default is **Eastern Time (EST/EDT)**.
 
-### 3.6: Adjust Timezone (If Not Eastern Time)
+| Timezone | 6 AM | 6 PM |
+|----------|------|------|
+| **EST/EDT** | `cron(0 11 * * ? *)` | `cron(0 23 * * ? *)` |
+| **CST/CDT** | `cron(0 12 * * ? *)` | `cron(0 0 * * ? *)` |
+| **MST/MDT** | `cron(0 13 * * ? *)` | `cron(0 1 * * ? *)` |
+| **PST/PDT** | `cron(0 14 * * ? *)` | `cron(0 2 * * ? *)` |
 
-Default is **Eastern Time (EST/EDT)** with checks at 6 AM and 6 PM.
-
-**If you're in a different timezone**, update these lines:
-
-**For Pacific Time (PST/PDT):**
-```hcl
-morning_cron = "cron(0 14 * * ? *)"  # 6 AM PST
-evening_cron = "cron(0 2 * * ? *)"   # 6 PM PST
-timezone = "America/Los_Angeles"
-```
-
-**For Central Time (CST/CDT):**
-```hcl
-morning_cron = "cron(0 12 * * ? *)"  # 6 AM CST
-evening_cron = "cron(0 0 * * ? *)"   # 6 PM CST
-timezone = "America/Chicago"
-```
-
-**For Mountain Time (MST/MDT):**
-```hcl
-morning_cron = "cron(0 13 * * ? *)"  # 6 AM MST
-evening_cron = "cron(0 1 * * ? *)"   # 6 PM MST
-timezone = "America/Denver"
-```
-
----
-
-### 3.7: Optional - Add SMS Notifications
-
-If you want text messages too:
-
-```hcl
-notification_phone = "+12345678900"  # Include country code!
-```
-
-Leave as `""` if you only want email.
-
----
-
-### 3.8: Save the File
-
-- **nano**: Press `Ctrl+X`, then `Y`, then `Enter`
-- **vim**: Press `Esc`, type `:wq`, press `Enter`
-- **Notepad**: Click File → Save
+### 3.5: Save the File
 
 ---
 
@@ -367,59 +282,35 @@ Leave as `""` if you only want email.
 
 This creates the ZIP files that Terraform will upload to AWS.
 
-### 4.1: Run Build Script
-
 **On Mac/Linux:**
 ```bash
 chmod +x build.sh
 ./build.sh
 ```
 
-**On Windows (Command Prompt):**
+**On Windows:**
 ```cmd
 build.bat
 ```
 
-**On Windows (PowerShell):**
-```powershell
-.\build.bat
-```
-
----
-
-### 4.2: Expected Output
-
-You should see:
+**Expected output:**
 ```
 ==========================================
 Building FLAG Monitor Lambda Package
 ==========================================
-Step 1: Creating Lambda function zip...
-✓ Lambda function package created: lambda_function.zip
-Step 2: Creating Lambda Layer with dependencies...
-✓ Lambda layer package created: lambda_layer.zip
-
+[OK] Lambda function package created: lambda_function.zip
+[OK] Lambda layer package created: lambda_layer.zip
 ==========================================
 Build Complete!
 ==========================================
 ```
 
----
-
-### 4.3: Verify Files Created
-
+**Verify files created:**
 ```bash
-ls -lh lambda_function.zip lambda_layer.zip
-
-# Or on Windows:
-dir lambda_function.zip lambda_layer.zip
+ls -lh *.zip
+# lambda_function.zip (~2-4 KB)
+# lambda_layer.zip (~500 KB - 1 MB)
 ```
-
-You should see:
-- `lambda_function.zip` (~2-4 KB)
-- `lambda_layer.zip` (~500 KB - 1 MB)
-
-✅ **If you see both files, proceed to next step!**
 
 ---
 
@@ -427,49 +318,17 @@ You should see:
 
 **Time: 5 minutes**
 
-Now we'll create all AWS resources with a few commands!
-
 ### 5.1: Initialize Terraform
 
 ```bash
 terraform init
 ```
 
-**Expected output:**
-```
-Initializing the backend...
-Initializing provider plugins...
-- Finding hashicorp/aws versions matching "~> 5.0"...
-- Installing hashicorp/aws v5.x.x...
-- Installed hashicorp/aws v5.x.x
-
-Terraform has been successfully initialized!
-```
-
-This downloads the AWS provider plugin.
-
----
-
-### 5.2: Review the Plan (Optional but Recommended)
-
-See what Terraform will create:
+### 5.2: Review the Plan (Optional)
 
 ```bash
 terraform plan
 ```
-
-You'll see a list of about 15 resources:
-- `aws_lambda_function.flag_monitor`
-- `aws_dynamodb_table.flag_processing_times`
-- `aws_sns_topic.flag_notifications`
-- `aws_iam_role.lambda_role`
-- `aws_cloudwatch_event_rule.morning_check`
-- `aws_cloudwatch_event_rule.evening_check`
-- And more...
-
-**This is what will be created in your AWS account.**
-
----
 
 ### 5.3: Deploy Everything!
 
@@ -477,57 +336,11 @@ You'll see a list of about 15 resources:
 terraform apply
 ```
 
-Terraform will show you the plan again and ask:
-```
-Do you want to perform these actions?
-  Terraform will perform the actions described above.
-  Only 'yes' will be accepted to approve.
-
-  Enter a value:
-```
-
-**Type:** `yes` (and press Enter)
-
----
-
-### 5.4: Watch the Magic Happen
-
-You'll see output like:
-```
-aws_dynamodb_table.flag_processing_times: Creating...
-aws_sns_topic.flag_notifications: Creating...
-aws_iam_role.lambda_role: Creating...
-aws_dynamodb_table.flag_processing_times: Creation complete
-aws_sns_topic.flag_notifications: Creation complete
-aws_sns_topic_subscription.email_subscription: Creating...
-...
-aws_lambda_function.flag_monitor: Creating...
-aws_lambda_function.flag_monitor: Still creating... [10s elapsed]
-aws_lambda_function.flag_monitor: Creation complete
-...
-
-Apply complete! Resources: 15 added, 0 changed, 0 destroyed.
-
-Outputs:
-
-notification_instructions = <<EOT
-
-===================================================================
-FLAG Monitor Deployed Successfully! 
-===================================================================
-
-IMPORTANT: Check your email (bickey@gmail.com) and confirm the SNS subscription!
-
-Resources Created:
-- Lambda Function: FLAG-Monitor
-- DynamoDB Table: FLAGProcessingTimes
-- SNS Topic: FLAG-Monitor-Notifications
-...
-```
+Type `yes` when prompted.
 
 **This takes about 2-3 minutes.**
 
-🎉 **Deployment complete! Your infrastructure is now running in AWS!**
+🎉 **Deployment complete!**
 
 ---
 
@@ -535,25 +348,9 @@ Resources Created:
 
 **Time: 2 minutes**
 
-### 6.1: Check Your Email
-
-Look for an email from **AWS Notifications** with subject:
-```
-AWS Notification - Subscription Confirmation
-```
-
-**Check your spam/junk folder if you don't see it!**
-
----
-
-### 6.2: Click Confirmation Link
-
-Click the **"Confirm subscription"** link in the email.
-
-Your browser will open and show:
-```
-Subscription confirmed!
-```
+1. Check your email for **"AWS Notification - Subscription Confirmation"**
+2. **Check spam/junk folder** if you don't see it
+3. Click the **"Confirm subscription"** link
 
 ✅ **You're now subscribed and will receive notifications!**
 
@@ -563,427 +360,243 @@ Subscription confirmed!
 
 **Time: 3 minutes**
 
-Let's make sure it works!
-
 ### 7.1: Manually Invoke Lambda
 
 ```bash
-aws lambda invoke \
-  --function-name FLAG-Monitor \
-  --payload '{}' \
-  response.json
+aws lambda invoke --function-name FLAG-Monitor --payload '{}' response.json
 ```
-
-**Expected output:**
-```json
-{
-    "StatusCode": 200,
-    "ExecutedVersion": "$LATEST"
-}
-```
-
----
 
 ### 7.2: Check Response
 
 ```bash
 cat response.json
-
-# Or on Windows:
-type response.json
+# Or on Windows: type response.json
 ```
-
-Should show:
-```json
-{
-  "statusCode": 200,
-  "body": "{\"message\": \"Date changed\", \"current\": \"August 2024\"}"
-}
-```
-
----
 
 ### 7.3: Check Your Email
 
-Within 1-2 minutes, you should receive an email like:
+You should receive a notification email within 1-2 minutes.
 
-```
-Subject: FLAG Monitor Started
-
-FLAG DOL Processing Times Monitor is now active!
-
-Current Analyst Review Date: August 2024
-
-You will receive notifications:
-- Every day at 6 AM and 6 PM (status update)
-- Immediately when the date changes
-
-Check the site at: https://flag.dol.gov/processingtimes
-
-Timestamp: 2025-01-02 04:32 PM
-```
-
-✅ **If you got this email, everything is working perfectly!**
+✅ **If you got the email, everything is working!**
 
 ---
 
-### 7.4: View Logs (Optional)
+## API Gateway - Manual Trigger
+
+API Gateway provides a URL to trigger the Lambda manually from any device — your phone, browser, or anywhere with internet access.
+
+### Getting Your Trigger URL
+
+After deployment, get your URL:
 
 ```bash
-aws logs tail /aws/lambda/FLAG-Monitor --follow
+terraform output trigger_url
 ```
 
-You'll see the Lambda execution logs in real-time.
+Output:
+```
+"https://abc123xyz.execute-api.us-east-1.amazonaws.com/trigger"
+```
 
-Press `Ctrl+C` to exit.
+### How to Use It
+
+**From Browser:**
+Just paste the URL in your browser's address bar and hit Enter.
+
+**From Phone:**
+1. Open the URL in your phone's browser
+2. Bookmark it for quick access
+3. Tap the bookmark anytime to trigger a check
+
+**From Command Line:**
+```bash
+curl https://abc123xyz.execute-api.us-east-1.amazonaws.com/trigger
+```
+
+### What Happens When You Trigger
+
+1. Lambda executes immediately
+2. Scrapes FLAG website
+3. Compares with stored date
+4. Sends you an email notification
+5. Returns JSON response in browser:
+   ```json
+   {"statusCode": 200, "body": "{\"message\": \"No change\", \"current\": \"August 2024\"}"}
+   ```
+
+### API Gateway Cost
+
+| Usage | Cost |
+|-------|------|
+| First 1 million requests/month | **FREE** (12 months) |
+| After free tier | $1.00 per million requests |
+
+For manual triggers (maybe 100/month), cost is essentially **$0.00**.
+
+### Security Note
+
+The URL is public but obscure (random characters). Anyone with the URL can trigger your Lambda, but:
+- It only reads a public website
+- Worst case: someone triggers extra checks (minimal cost)
+- If concerned, you can add authentication later
 
 ---
 
 ## What Gets Created
 
-### In Your AWS Account:
+### AWS Resources
 
-1. **Lambda Function** (`FLAG-Monitor`)
-   - Runs your Python monitoring code
-   - Triggered by EventBridge schedules
-   - Has permissions to access SNS and DynamoDB
+| Resource | Name | Purpose |
+|----------|------|---------|
+| Lambda Function | `FLAG-Monitor` | Runs your Python code |
+| Lambda Layer | `FLAG-Monitor-Dependencies` | Python packages (requests, bs4) |
+| DynamoDB Table | `FLAGProcessingTimes` | Stores last known date |
+| SNS Topic | `FLAG-Monitor-Notifications` | Sends emails |
+| EventBridge Rules | `FLAG-Monitor-6AM`, `FLAG-Monitor-6PM` | Scheduled triggers |
+| API Gateway | `FLAG-Monitor-API` | Manual trigger URL |
+| IAM Role | `FLAG-Monitor-Lambda-Role` | Permissions |
+| CloudWatch Logs | `/aws/lambda/FLAG-Monitor` | Execution logs |
 
-2. **DynamoDB Table** (`FLAGProcessingTimes`)
-   - Stores the last known Analyst Review date
-   - Used to detect when date changes
-
-3. **SNS Topic** (`FLAG-Monitor-Notifications`)
-   - Sends emails/SMS
-   - You're subscribed to this topic
-
-4. **SNS Subscriptions**
-   - Email subscription (confirmed by you)
-   - SMS subscription (if you added phone number)
-
-5. **IAM Role** (`FLAG-Monitor-Lambda-Role`)
-   - Allows Lambda to access other AWS services
-   - Follows least-privilege security model
-
-6. **EventBridge Rules** (2 schedules)
-   - `FLAG-Monitor-6AM` - Triggers at 6 AM
-   - `FLAG-Monitor-6PM` - Triggers at 6 PM
-
-7. **CloudWatch Log Group** (`/aws/lambda/FLAG-Monitor`)
-   - Stores execution logs
-   - 7-day retention
-
----
-
-### Files Created Locally:
+### Local Files Created
 
 ```
 flag_monitor_complete/
-├── terraform.tfvars          # Your configuration (DO NOT COMMIT!)
-├── terraform.tfstate         # Current state (DO NOT COMMIT!)
-├── terraform.tfstate.backup  # Previous state (DO NOT COMMIT!)
-├── .terraform/               # Terraform plugins
-├── lambda_function.zip       # Lambda code package
-├── lambda_layer.zip          # Python dependencies
-└── response.json            # Test response
+├── terraform.tfvars          # Your config (DO NOT COMMIT)
+├── terraform.tfstate         # State file (DO NOT COMMIT)
+├── terraform.tfstate.backup  
+├── .terraform/               
+├── lambda_function.zip       
+├── lambda_layer.zip          
+└── response.json            
 ```
 
 ---
 
 ## Daily Operations
 
-### What Happens Automatically
+### Automatic Checks
 
-**Every day at 6 AM and 6 PM (your timezone):**
+Every day at 6 AM and 6 PM:
+1. EventBridge triggers Lambda
+2. Lambda scrapes FLAG website
+3. Compares with DynamoDB
+4. Sends notification via SNS
 
-1. EventBridge triggers Lambda function
-2. Lambda fetches FLAG website
-3. Extracts Analyst Review date
-4. Compares with stored value in DynamoDB
-5. Sends you a notification via SNS
+### Notification Types
 
-**Two types of notifications:**
-
-**Type 1: Date Changed (What you're waiting for!)**
+**Date Changed:**
 ```
 Subject: 🎉 FLAG Analyst Review Date UPDATED!
 
-The Analyst Review date has MOVED!
-
 Previous Date: August 2024
 New Date: September 2024
-
-This means PERM applications are being processed faster!
 ```
 
-**Type 2: No Change (Daily status)**
+**No Change (daily status):**
 ```
 Subject: FLAG Monitor Status: No Change
 
 Current Analyst Review Date: August 2024
 Status: No change since last check
-
-Next check: In 12 hours
 ```
 
----
+### Useful Commands
 
-### Checking Status
-
-**View recent Lambda executions:**
 ```bash
-aws lambda list-functions --query 'Functions[?FunctionName==`FLAG-Monitor`]'
-```
-
-**View logs:**
-```bash
+# View logs
 aws logs tail /aws/lambda/FLAG-Monitor --follow
-```
 
-**Check DynamoDB for stored date:**
-```bash
-aws dynamodb get-item \
-  --table-name FLAGProcessingTimes \
-  --key '{"id": {"S": "analyst_review_date"}}'
+# Check stored date
+aws dynamodb scan --table-name FLAGProcessingTimes
+
+# Manual trigger via CLI
+aws lambda invoke --function-name FLAG-Monitor response.json
+
+# Get API Gateway URL
+terraform output trigger_url
 ```
 
 ---
 
 ## Troubleshooting
 
-### Issue: No Email Received After Deployment
+### No Email Received
 
-**Possible causes:**
+1. Check spam/junk folder
+2. Verify subscription: AWS Console → SNS → Topics → Subscriptions
+3. Status should be "Confirmed"
 
-1. **SNS subscription not confirmed**
-   - Check spam/junk folder
-   - Go to AWS Console → SNS → Topics → FLAG-Monitor-Notifications → Subscriptions
-   - Status should be "Confirmed", not "Pending"
+### Lambda Timeout
 
-2. **Wrong email in terraform.tfvars**
-   - Check `terraform.tfvars` file
-   - Run `terraform apply` again to update
-
-**Solution:**
 ```bash
-# Check subscription status
-aws sns list-subscriptions-by-topic \
-  --topic-arn $(terraform output -raw sns_topic_arn)
-```
-
----
-
-### Issue: Lambda Timeout or Errors
-
-**Check logs:**
-```bash
+# Check logs
 aws logs tail /aws/lambda/FLAG-Monitor --since 1h
 ```
 
-**Common errors:**
+### Build Script Fails
 
-1. **Network timeout** - Website might be slow
-   - Solution: Increase timeout in `main.tf` (already set to 30s)
-
-2. **Permission denied** - IAM role issue
-   - Solution: Run `terraform apply` again
-
----
-
-### Issue: Wrong Timezone
-
-**Problem:** Notifications at wrong time
-
-**Solution:**
-
-1. Edit `terraform.tfvars`
-2. Update `morning_cron` and `evening_cron` values
-3. Run:
-   ```bash
-   terraform apply
-   ```
-
----
-
-### Issue: Build Script Fails
-
-**Error:** `pip install` fails
-
-**Solution:**
 ```bash
 # Update pip
 python3 -m pip install --upgrade pip
 
-# Try build again
-./build.sh  # or build.bat on Windows
+# On Windows, if --user conflict:
+pip install requests beautifulsoup4 --target build\layer\python --no-user
 ```
 
----
+### API Gateway Not Working
 
-### Issue: Terraform Apply Fails
+```bash
+# Verify it exists
+terraform output trigger_url
 
-**Error:** "Error creating Lambda function"
-
-**Checklist:**
-- ✅ `lambda_function.zip` exists (run `build.sh`)
-- ✅ `lambda_layer.zip` exists (run `build.sh`)
-- ✅ AWS credentials configured (`aws sts get-caller-identity`)
-- ✅ Sufficient IAM permissions
+# If empty, redeploy
+terraform apply
+```
 
 ---
 
 ## Updating & Maintenance
 
-### Updating Configuration
-
-**Change notification time:**
+### Change Notification Time
 
 1. Edit `terraform.tfvars`
-2. Update `morning_cron` or `evening_cron`
-3. Run:
-   ```bash
-   terraform apply
-   ```
+2. Update `morning_cron` / `evening_cron`
+3. Run `terraform apply`
 
-**Add/change email:**
+### Change Email
 
 1. Edit `terraform.tfvars`
-2. Update `notification_email`
-3. Run:
-   ```bash
-   terraform apply
-   ```
-4. Confirm new email subscription
+2. Run `terraform apply`
+3. Confirm new email subscription
 
----
-
-### Updating Lambda Code
-
-If you want to modify the monitoring logic:
+### Update Lambda Code
 
 1. Edit `lambda_function.py`
-2. Rebuild package:
-   ```bash
-   ./build.sh  # or build.bat
-   ```
-3. Deploy:
-   ```bash
-   terraform apply
-   ```
+2. Run `./build.sh` (or `build.bat`)
+3. Run `terraform apply`
 
----
+### Pause Monitoring
 
-### Viewing Costs
-
-**AWS Cost Explorer:**
-1. Go to AWS Console
-2. Search for "Cost Explorer"
-3. View charges by service
-
-**Expected monthly cost:** ~$0.03 (mostly in free tier)
-
----
-
-### Pausing the Monitor
-
-**Disable schedules:**
 ```bash
-# Disable morning check
 aws events disable-rule --name FLAG-Monitor-6AM
-
-# Disable evening check
 aws events disable-rule --name FLAG-Monitor-6PM
 ```
 
-**Re-enable:**
+### Resume Monitoring
+
 ```bash
 aws events enable-rule --name FLAG-Monitor-6AM
 aws events enable-rule --name FLAG-Monitor-6PM
 ```
 
----
-
-### Destroying Everything
-
-**To completely remove all AWS resources:**
+### Destroy Everything
 
 ```bash
 terraform destroy
+# Type 'yes' to confirm
 ```
 
-Type `yes` when prompted.
-
-This will delete:
-- Lambda function
-- DynamoDB table (and all data)
-- SNS topic and subscriptions
-- EventBridge rules
-- IAM roles
-- CloudWatch logs
-
-**⚠️ WARNING: This is permanent! You'll need to redeploy from scratch.**
-
----
-
-## AWS Console Verification
-
-Want to see your resources in AWS Console?
-
-1. **Login**: https://console.aws.amazon.com/
-2. **Region**: Make sure you're in **us-east-1** (top right)
-
-**Check resources:**
-
-- **Lambda**: https://console.aws.amazon.com/lambda/ → Functions → `FLAG-Monitor`
-- **DynamoDB**: https://console.aws.amazon.com/dynamodb/ → Tables → `FLAGProcessingTimes`
-- **SNS**: https://console.aws.amazon.com/sns/ → Topics → `FLAG-Monitor-Notifications`
-- **EventBridge**: https://console.aws.amazon.com/events/ → Rules → `FLAG-Monitor-6AM`, `FLAG-Monitor-6PM`
-- **CloudWatch**: https://console.aws.amazon.com/cloudwatch/ → Logs → `/aws/lambda/FLAG-Monitor`
-
----
-
-## Summary
-
-🎉 **You've successfully deployed an automated monitoring system!**
-
-**What you built:**
-- ✅ Automated web scraper (Python)
-- ✅ Serverless computing (AWS Lambda)
-- ✅ NoSQL database (DynamoDB)
-- ✅ Notification system (SNS)
-- ✅ Scheduled triggers (EventBridge)
-- ✅ Infrastructure as Code (Terraform)
-
-**What happens next:**
-- ✅ System checks FLAG website at 6 AM and 6 PM daily
-- ✅ You get email notifications when date changes
-- ✅ You get daily status updates
-- ✅ Everything runs automatically - no action needed from you!
-
-**When you'll get alerted:**
-As soon as the Analyst Review date moves from **"August 2024"** to a newer date!
-
----
-
-## Need Help?
-
-**Check these resources:**
-- `QUICKSTART.md` - Quick reference guide
-- `DETAILED_SETUP.md` - Even more detailed setup
-
-**Common commands:**
-```bash
-# View Terraform state
-terraform show
-
-# View outputs
-terraform output
-
-# View logs
-aws logs tail /aws/lambda/FLAG-Monitor --follow
-
-# Test function
-aws lambda invoke --function-name FLAG-Monitor response.json
-```
+⚠️ **This is permanent!**
 
 ---
 
@@ -991,44 +604,35 @@ aws lambda invoke --function-name FLAG-Monitor response.json
 
 | Service | Usage | Monthly Cost |
 |---------|-------|--------------|
-| Lambda | 60 executions | $0.00 (free tier) |
-| Lambda Layer | Storage | $0.00 (free tier) |
-| DynamoDB | On-demand, <1KB | $0.00 (free tier) |
-| SNS | ~60 emails | $0.03 |
-| SNS | ~60 SMS (optional) | $3.00 |
+| Lambda | ~60 executions | $0.00 (free tier) |
+| DynamoDB | <1KB storage | $0.00 (free tier) |
+| SNS | ~60 emails | ~$0.03 |
+| API Gateway | <100 requests | $0.00 (free tier) |
 | CloudWatch | 7-day logs | $0.00 (free tier) |
 | EventBridge | 60 events | $0.00 (free tier) |
-| **Total (email only)** | | **$0.03/month** |
-| **Total (with SMS)** | | **$3.03/month** |
+| **Total** | | **~$0.03/month** |
 
 ---
 
-## What You Learned
+## Technologies Used
 
-This project teaches real-world skills:
-
-**Technologies:**
-- Python programming
-- AWS Lambda (serverless)
-- DynamoDB (NoSQL database)
-- SNS (notifications)
-- EventBridge (scheduling)
-- Terraform (Infrastructure as Code)
-- AWS CLI
-- IAM (security & permissions)
-
-**Concepts:**
-- Infrastructure as Code
-- Serverless architecture
-- Event-driven systems
-- Web scraping
-- Automated monitoring
-- Cloud deployment
-
-**This is production-grade infrastructure!** 🚀
+- **Python** - Lambda function code
+- **AWS Lambda** - Serverless compute
+- **AWS DynamoDB** - NoSQL database
+- **AWS SNS** - Email notifications
+- **AWS EventBridge** - Scheduled triggers
+- **AWS API Gateway** - HTTP endpoint for manual triggers
+- **AWS CloudWatch** - Logging
+- **AWS IAM** - Security & permissions
+- **Terraform** - Infrastructure as Code
+- **BeautifulSoup** - Web scraping
 
 ---
 
-**Congratulations! You're all set!** 🎉
+## License
 
-Your FLAG monitor is now running 24/7 in the cloud!
+MIT License - feel free to use and modify.
+
+---
+
+🎉 **Your FLAG monitor is now running 24/7 in the cloud!**
