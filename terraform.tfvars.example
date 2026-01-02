@@ -1,0 +1,48 @@
+# Terraform Variables Configuration
+# Copy this file and customize with your values
+
+# REQUIRED: Your email for notifications
+notification_email = "your-email@example.com"
+
+# OPTIONAL: Your phone number for SMS (include country code like +12345678900)
+# Leave empty "" if you don't want SMS notifications
+notification_phone = ""
+
+# AWS Region (default: us-east-1)
+aws_region = "us-east-1"
+
+# Environment name
+environment = "prod"
+
+# Your timezone (for reference only, doesn't affect cron expressions)
+timezone = "America/New_York"
+
+# Cron expressions for scheduling (in UTC!)
+# Default values are for 6 AM and 6 PM EST
+
+# For 6 AM EST (11 AM UTC)
+morning_cron = "cron(0 11 * * ? *)"
+
+# For 6 PM EST (11 PM UTC)  
+evening_cron = "cron(0 23 * * ? *)"
+
+# ========================================
+# TIMEZONE REFERENCE (for 6 AM / 6 PM local time)
+# ========================================
+# 
+# Eastern Time (EST/EDT):
+#   morning_cron = "cron(0 11 * * ? *)"  # 6 AM EST = 11 AM UTC
+#   evening_cron = "cron(0 23 * * ? *)"  # 6 PM EST = 11 PM UTC
+#
+# Central Time (CST/CDT):
+#   morning_cron = "cron(0 12 * * ? *)"  # 6 AM CST = 12 PM UTC
+#   evening_cron = "cron(0 0 * * ? *)"   # 6 PM CST = 12 AM UTC
+#
+# Mountain Time (MST/MDT):
+#   morning_cron = "cron(0 13 * * ? *)"  # 6 AM MST = 1 PM UTC
+#   evening_cron = "cron(0 1 * * ? *)"   # 6 PM MST = 1 AM UTC
+#
+# Pacific Time (PST/PDT):
+#   morning_cron = "cron(0 14 * * ? *)"  # 6 AM PST = 2 PM UTC
+#   evening_cron = "cron(0 2 * * ? *)"   # 6 PM PST = 2 AM UTC
+#
