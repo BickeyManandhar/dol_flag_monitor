@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLAG Monitor - Architecture Diagram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+        
+        .diagram {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 40px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .section {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .section-label {
+            width: 100%;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+        }
+        
+        .box {
+            padding: 20px 25px;
+            border-radius: 12px;
+            text-align: center;
+            min-width: 160px;
+            transition: transform 0.3s, box-shadow 0.3s;
+            position: relative;
+        }
+        
+        .box:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        
+        .box .icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        .box .title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 5px;
+        }
+        
+        .box .desc {
+            font-size: 0.75rem;
+            opacity: 0.8;
+        }
+        
+        /* Color schemes */
+        .trigger {
+            background: linear-gradient(135deg, #ff9800, #f57c00);
+            color: #000;
+        }
+        
+        .compute {
+            background: linear-gradient(135deg, #2196f3, #1976d2);
+        }
+        
+        .storage {
+            background: linear-gradient(135deg, #4caf50, #388e3c);
+        }
+        
+        .notify {
+            background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+        }
+        
+        .external {
+            background: linear-gradient(135deg, #607d8b, #455a64);
+        }
+        
+        .security {
+            background: linear-gradient(135deg, #f44336, #d32f2f);
+        }
+        
+        .monitor {
+            background: linear-gradient(135deg, #00bcd4, #0097a7);
+            color: #000;
+        }
+        
+        /* Arrows */
+        .arrows {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        
+        .arrow {
+            color: #00d9ff;
+            font-size: 2rem;
+            animation: bounce 1s infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(5px); }
+        }
+        
+        .arrow-label {
+            color: #888;
+            font-size: 0.8rem;
+            margin: 0 20px;
+        }
+        
+        /* Flow section */
+        .flow-container {
+            margin-top: 50px;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .flow-title {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 30px;
+            color: #00ff88;
+        }
+        
+        .flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .flow-step {
+            background: rgba(255,255,255,0.1);
+            padding: 15px 20px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 140px;
+        }
+        
+        .flow-step .num {
+            background: #00d9ff;
+            color: #000;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+            margin-bottom: 8px;
+        }
+        
+        .flow-step .text {
+            font-size: 0.85rem;
+        }
+        
+        .flow-arrow {
+            color: #00d9ff;
+            font-size: 1.5rem;
+        }
+        
+        /* Cost section */
+        .cost-section {
+            margin-top: 50px;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .cost-title {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #00ff88;
+        }
+        
+        .cost-box {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4caf50;
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        
+        .cost-amount {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #4caf50;
+        }
+        
+        .cost-period {
+            color: #888;
+            margin-top: 5px;
+        }
+        
+        .cost-note {
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+        
+        /* Tech stack */
+        .tech-section {
+            margin-top: 50px;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .tech-title {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #00ff88;
+        }
+        
+        .tech-grid {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .tech-tag {
+            background: rgba(255,255,255,0.1);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        /* Legend */
+        .legend {
+            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: #aaa;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏛️ FLAG DOL Monitor</h1>
+        <p class="subtitle">Serverless Architecture on AWS</p>
+        
+        <div class="diagram">
+            <!-- Triggers Section -->
+            <div class="section-label">⏰ Triggers</div>
+            <div class="section">
+                <div class="box trigger">
+                    <div class="icon">🌅</div>
+                    <div class="title">EventBridge</div>
+                    <div class="desc">6 AM Daily</div>
+                </div>
+                <div class="box trigger">
+                    <div class="icon">🌆</div>
+                    <div class="title">EventBridge</div>
+                    <div class="desc">6 PM Daily</div>
+                </div>
+                <div class="box trigger">
+                    <div class="icon">🌐</div>
+                    <div class="title">API Gateway</div>
+                    <div class="desc">Manual Trigger URL</div>
+                </div>
+            </div>
+            
+            <!-- Arrow -->
+            <div class="arrows">
+                <span class="arrow">↓</span>
+                <span class="arrow-label">Invokes</span>
+                <span class="arrow">↓</span>
+            </div>
+            
+            <!-- Compute Section -->
+            <div class="section-label">⚡ Compute</div>
+            <div class="section">
+                <div class="box compute">
+                    <div class="icon">🐍</div>
+                    <div class="title">Lambda Function</div>
+                    <div class="desc">FLAG-Monitor • Python 3.11</div>
+                </div>
+                <div class="box compute">
+                    <div class="icon">📦</div>
+                    <div class="title">Lambda Layer</div>
+                    <div class="desc">requests + beautifulsoup4</div>
+                </div>
+            </div>
+            
+            <!-- Arrow -->
+            <div class="arrows">
+                <span class="arrow">↓</span>
+                <span class="arrow-label">Interacts with</span>
+                <span class="arrow">↓</span>
+            </div>
+            
+            <!-- Data Section -->
+            <div class="section-label">💾 Data & External</div>
+            <div class="section">
+                <div class="box external">
+                    <div class="icon">🏛️</div>
+                    <div class="title">FLAG Website</div>
+                    <div class="desc">flag.dol.gov/processingtimes</div>
+                </div>
+                <div class="box storage">
+                    <div class="icon">🗄️</div>
+                    <div class="title">DynamoDB</div>
+                    <div class="desc">Stores last known date</div>
+                </div>
+            </div>
+            
+            <!-- Arrow -->
+            <div class="arrows">
+                <span class="arrow">↓</span>
+                <span class="arrow-label">Notifies</span>
+                <span class="arrow">↓</span>
+            </div>
+            
+            <!-- Notifications Section -->
+            <div class="section-label">📬 Notifications</div>
+            <div class="section">
+                <div class="box notify">
+                    <div class="icon">📢</div>
+                    <div class="title">SNS Topic</div>
+                    <div class="desc">FLAG-Monitor-Notifications</div>
+                </div>
+                <div class="box notify">
+                    <div class="icon">📧</div>
+                    <div class="title">Email</div>
+                    <div class="desc">Your Inbox</div>
+                </div>
+            </div>
+            
+            <!-- Supporting Services -->
+            <div class="section-label" style="margin-top: 30px;">🛠️ Supporting Services</div>
+            <div class="section">
+                <div class="box security">
+                    <div class="icon">🔑</div>
+                    <div class="title">IAM Role</div>
+                    <div class="desc">Permissions</div>
+                </div>
+                <div class="box monitor">
+                    <div class="icon">📋</div>
+                    <div class="title">CloudWatch</div>
+                    <div class="desc">Logs & Monitoring</div>
+                </div>
+            </div>
+            
+            <!-- Legend -->
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #ff9800, #f57c00);"></div>
+                    <span>Triggers</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #2196f3, #1976d2);"></div>
+                    <span>Compute</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #4caf50, #388e3c);"></div>
+                    <span>Storage</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #9c27b0, #7b1fa2);"></div>
+                    <span>Notifications</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #607d8b, #455a64);"></div>
+                    <span>External</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Flow Section -->
+        <div class="flow-container">
+            <h2 class="flow-title">📊 Data Flow</h2>
+            <div class="flow">
+                <div class="flow-step">
+                    <div class="num">1</div>
+                    <div class="text">Trigger fires<br/>(scheduled/manual)</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="num">2</div>
+                    <div class="text">Lambda<br/>executes</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="num">3</div>
+                    <div class="text">Scrape FLAG<br/>website</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="num">4</div>
+                    <div class="text">Compare with<br/>DynamoDB</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="num">5</div>
+                    <div class="text">Send email<br/>via SNS</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Cost Section -->
+        <div class="cost-section">
+            <h2 class="cost-title">💰 Monthly Cost</h2>
+            <div class="cost-box">
+                <div class="cost-amount">~$0.03</div>
+                <div class="cost-period">per month</div>
+                <div class="cost-note">Almost entirely within AWS Free Tier</div>
+            </div>
+        </div>
+        
+        <!-- Tech Stack Section -->
+        <div class="tech-section">
+            <h2 class="tech-title">🛠️ Tech Stack</h2>
+            <div class="tech-grid">
+                <span class="tech-tag">Python 3.11</span>
+                <span class="tech-tag">AWS Lambda</span>
+                <span class="tech-tag">DynamoDB</span>
+                <span class="tech-tag">SNS</span>
+                <span class="tech-tag">EventBridge</span>
+                <span class="tech-tag">API Gateway</span>
+                <span class="tech-tag">CloudWatch</span>
+                <span class="tech-tag">IAM</span>
+                <span class="tech-tag">Terraform</span>
+                <span class="tech-tag">BeautifulSoup</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
