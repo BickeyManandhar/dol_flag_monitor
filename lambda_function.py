@@ -10,6 +10,8 @@ import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 import os
+from zoneinfo import ZoneInfo
+from datetime import timezone
 
 # AWS clients
 sns_client = boto3.client('sns')
@@ -22,6 +24,13 @@ FLAG_URL = 'https://flag.dol.gov/processingtimes'
 
 # Example: Your LC Priority Date 
 MY_LC_DATE = "October 2024"
+
+ET = ZoneInfo("America/New_York")
+
+def now_et():
+    """Return current Eastern Time (EST/EDT)"""
+    return datetime.now(timezone.utc).astimezone(ET)
+
 
 def parse_date_to_comparable(date_str):
     """
@@ -108,7 +117,7 @@ def save_current_date(date_value):
             Item={
                 'id': 'analyst_review_date',
                 'date': date_value,
-                'last_updated': datetime.now().isoformat()
+                'last_updated': now_et().isoformat()
             }
         )
         return True
@@ -138,7 +147,7 @@ def lambda_handler(event, context):
     Runs twice daily to check FLAG processing times
     """
     
-    print(f"Starting FLAG monitor check at {datetime.now().isoformat()}")
+    print(f"Starting FLAG monitor check at {now_et().isoformat()}")
     
     # Get current date from website
     current_date = get_current_analyst_date()
@@ -195,7 +204,7 @@ NEXT STEPS:
 Check the full details at:
 {FLAG_URL}
 
-Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
 
 🎊 Best of luck with your green card journey! 🎊
                 """
@@ -217,7 +226,7 @@ This means PERM applications are being processed faster!
 Check the full details at:
 {FLAG_URL}
 
-Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
                 """
         else:
             # First time running
@@ -239,7 +248,7 @@ You will receive notifications:
 
 Check the site at: {FLAG_URL}
 
-Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
                 """
             else:
                 subject = "FLAG Monitor Started"
@@ -256,7 +265,7 @@ You will receive notifications:
 
 Check the site at: {FLAG_URL}
 
-Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
                 """
         
         # Save new date
@@ -294,7 +303,7 @@ Next check: In 12 hours
 
 Check the site at: {FLAG_URL}
 
-Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
             """
         else:
             subject = "FLAG Monitor Status: No Change"
@@ -313,7 +322,7 @@ Next check: In 12 hours
 
 Check the site at: {FLAG_URL}
 
-Timestamp: {datetime.now().strftime('%Y-%m-%d %I:%M %p')}
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
             """
         
         send_notification(subject, message)
