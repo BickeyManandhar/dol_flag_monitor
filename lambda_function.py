@@ -1,6 +1,10 @@
 """
-FLAG DOL Processing Times Monitor
-Checks Analyst Review date and sends notifications via email/SMS
+FLAG DOL Processing Times Monitor - Enhanced with Dual Date Tracking
+Tracks TWO dates:
+1. "as of" date - When DOL last updated the data
+2. Analyst Review date - The actual processing date
+
+Checks and sends notifications via email/SMS
 Runs twice daily at 6 AM and 6 PM
 """
 
@@ -12,6 +16,7 @@ from bs4 import BeautifulSoup
 import os
 from zoneinfo import ZoneInfo
 from datetime import timezone
+import re
 
 # AWS clients
 sns_client = boto3.client('sns')
@@ -59,9 +64,13 @@ def is_date_current_or_past(current_analyst_date, my_date):
     mine = parse_date_to_comparable(my_date)
     return analyst >= mine
 
-def get_current_analyst_date():
+def get_current_processing_data():
     """
-    Scrape the FLAG website to get the current Analyst Review date
+    Scrape the FLAG website to get BOTH:
+    1. The "as of" date (when data was last updated by DOL)
+    2. The Analyst Review date (actual processing date)
+    
+    Returns: dict with 'as_of_date' and 'analyst_review_date', or None if error
     """
     try:
         headers = {
@@ -73,51 +82,88 @@ def get_current_analyst_date():
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Find the PERM Processing Times table
-        # Look for "Analyst Review" row
-        rows = soup.find_all('tr')
+        # Find the "as of" date
+        # Look for text like "PERM Processing Times (as of 12/01/2025)"
+        as_of_date = None
         
+        # Search for heading or paragraph with "as of"
+        text_elements = soup.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'div'])
+        for element in text_elements:
+            text = element.get_text(strip=True)
+            if 'as of' in text.lower() and ('perm' in text.lower() or 'processing' in text.lower()):
+                # Extract date using regex
+                # Pattern 1: (as of MM/DD/YYYY)
+                match = re.search(r'as of\s+(\d{1,2}/\d{1,2}/\d{4})', text, re.IGNORECASE)
+                if match:
+                    as_of_date = match.group(1)
+                    break
+                
+                # Pattern 2: (as of Month DD, YYYY)
+                match = re.search(r'as of\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})', text, re.IGNORECASE)
+                if match:
+                    as_of_date = match.group(1)
+                    break
+        
+        # Find the Analyst Review date from table
+        analyst_review_date = None
+        
+        rows = soup.find_all('tr')
         for row in rows:
             cells = row.find_all(['td', 'th'])
             if len(cells) >= 2:
                 first_cell = cells[0].get_text(strip=True)
                 if 'Analyst Review' in first_cell:
-                    analyst_date = cells[1].get_text(strip=True)
-                    return analyst_date
+                    analyst_review_date = cells[1].get_text(strip=True)
+                    break
         
-        return None
+        if not analyst_review_date:
+            print("ERROR: Could not find Analyst Review date")
+            return None
+        
+        result = {
+            'as_of_date': as_of_date or 'Not found',
+            'analyst_review_date': analyst_review_date
+        }
+        
+        print(f"Scraped data: {result}")
+        return result
         
     except Exception as e:
         print(f"Error scraping website: {str(e)}")
         return None
 
-def get_previous_date():
+def get_previous_data():
     """
-    Get the previously stored Analyst Review date from DynamoDB
+    Get the previously stored data from DynamoDB
+    Returns: dict with 'as_of_date' and 'analyst_review_date', or None
     """
     try:
         table = dynamodb.Table(DYNAMODB_TABLE)
-        response = table.get_item(Key={'id': 'analyst_review_date'})
+        response = table.get_item(Key={'id': 'processing_data'})
         
         if 'Item' in response:
-            return response['Item']['date']
+            return {
+                'as_of_date': response['Item'].get('as_of_date'),
+                'analyst_review_date': response['Item'].get('analyst_review_date')
+            }
         return None
         
     except Exception as e:
         print(f"Error reading from DynamoDB: {str(e)}")
         return None
 
-def save_current_date(date_value):
+def save_current_data(data):
     """
-    Save the current Analyst Review date to DynamoDB
+    Save the current processing data to DynamoDB
     """
     try:
         table = dynamodb.Table(DYNAMODB_TABLE)
         table.put_item(
             Item={
-                'id': 'analyst_review_date',
-                'date': date_value,
-                'last_updated': now_et().isoformat()
+                'id': 'processing_data',
+                'as_of_date': data['as_of_date'],
+                'analyst_review_date': data['analyst_review_date'],
+                'last_checked': now_et().isoformat()
             }
         )
         return True
@@ -144,16 +190,16 @@ def send_notification(subject, message):
 def lambda_handler(event, context):
     """
     Main Lambda handler function
-    Runs twice daily to check FLAG processing times
+    Tracks BOTH "as of" date and Analyst Review date
     """
     
     print(f"Starting FLAG monitor check at {now_et().isoformat()}")
     
-    # Get current date from website
-    current_date = get_current_analyst_date()
+    # Get current data from website
+    current_data = get_current_processing_data()
     
-    if not current_date:
-        error_msg = "❌ ERROR: Unable to retrieve Analyst Review date from FLAG website"
+    if not current_data:
+        error_msg = "❌ ERROR: Unable to retrieve processing times from FLAG website"
         print(error_msg)
         send_notification("FLAG Monitor Error", error_msg)
         return {
@@ -161,22 +207,211 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': 'Failed to scrape website'})
         }
     
-    print(f"Current Analyst Review date: {current_date}")
+    print(f"Current data: {current_data}")
     
-    # Get previous date from DynamoDB
-    previous_date = get_previous_date()
+    # Get previous data from DynamoDB
+    previous_data = get_previous_data()
     
     # Check if MY LC date is now current!
-    my_date_is_current = is_date_current_or_past(current_date, MY_LC_DATE)
+    my_date_is_current = is_date_current_or_past(
+        current_data['analyst_review_date'], 
+        MY_LC_DATE
+    )
     
-    # Check if date has changed
-    if previous_date != current_date:
-        # Date has changed!
-        if previous_date:
-            # Check if this change made MY date current
-            if my_date_is_current:
-                subject = "🎉🎊 HOORAY! Your LC Date is NOW CURRENT! 🎊🎉"
-                message = f"""
+    # Determine what changed
+    as_of_changed = False
+    analyst_date_changed = False
+    
+    if previous_data:
+        as_of_changed = previous_data['as_of_date'] != current_data['as_of_date']
+        analyst_date_changed = previous_data['analyst_review_date'] != current_data['analyst_review_date']
+    
+    # Handle different scenarios
+    if not previous_data:
+        # First time running
+        if my_date_is_current:
+            subject = "🎉 FLAG Monitor Started - Your LC Date is ALREADY Current!"
+            message = f"""
+FLAG DOL Processing Times Monitor is now active!
+
+🎊 GREAT NEWS: Your LC date is ALREADY current!
+
+📅 Data Last Updated (as of): {current_data['as_of_date']}
+📊 Analyst Review Date: {current_data['analyst_review_date']}
+🎯 Your LC Date: {MY_LC_DATE}
+
+Your PERM application should already be in the processing queue!
+
+Twice daily (6 AM & 6 PM), you'll be notified of:
+- Any changes to the "as of" date (DOL data refreshes)
+- Any changes to the Analyst Review date (processing progress)
+- When your LC date becomes current
+
+Check the site at: {FLAG_URL}
+
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
+            """
+        else:
+            subject = "FLAG Monitor Started"
+            message = f"""
+FLAG DOL Processing Times Monitor is now active!
+
+📅 Data Last Updated (as of): {current_data['as_of_date']}
+📊 Analyst Review Date: {current_data['analyst_review_date']}
+🎯 Your LC Date: {MY_LC_DATE}
+
+You will receive notifications when:
+- "as of" date changes (DOL updates data)
+- Analyst Review date changes (processing moves)
+- Special alert when your LC date becomes current!
+
+Check the site at: {FLAG_URL}
+
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
+            """
+        
+        save_current_data(current_data)
+        send_notification(subject, message)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'First run - data stored',
+                'data': current_data,
+                'my_lc_date': MY_LC_DATE,
+                'my_date_is_current': my_date_is_current
+            })
+        }
+    
+    elif as_of_changed and analyst_date_changed:
+        # BOTH changed!
+        # Check if this made YOUR date current
+        if my_date_is_current and not is_date_current_or_past(previous_data['analyst_review_date'], MY_LC_DATE):
+            # YOUR DATE JUST BECAME CURRENT!
+            subject = "🎉🎊 HOORAY! Your LC Date is NOW CURRENT! 🎊🎉"
+            message = f"""
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   🎉🎉🎉 CONGRATULATIONS! 🎉🎉🎉                            ║
+║                                                              ║
+║   YOUR LC DATE IS NOW CURRENT!                               ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+FLAG DOL Processing Times Update
+
+✅ BOTH dates changed and YOUR priority date is NOW CURRENT!
+
+📅 Data Last Updated (as of):
+   Previous: {previous_data['as_of_date']}
+   New: {current_data['as_of_date']}
+
+📊 Analyst Review Date:
+   Previous: {previous_data['analyst_review_date']}
+   New: {current_data['analyst_review_date']}
+
+🎯 Your LC Date: {MY_LC_DATE}
+
+🚀 This means your PERM application should now be in the 
+   queue for processing!
+
+NEXT STEPS:
+1. Keep an eye on your email for any RFE (Request for Evidence)
+2. Check your PERM case status regularly
+3. Coordinate with your attorney/HR
+
+Check the full details at: {FLAG_URL}
+
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
+
+🎊 Best of luck with your green card journey! 🎊
+            """
+        else:
+            subject = "🎉 FLAG UPDATE: Both Dates Changed!"
+            message = f"""
+FLAG DOL Processing Times - IMPORTANT UPDATE
+
+🎉 BOTH dates have changed!
+
+📅 Data Last Updated (as of):
+   Previous: {previous_data['as_of_date']}
+   New: {current_data['as_of_date']}
+
+📊 Analyst Review Date:
+   Previous: {previous_data['analyst_review_date']}
+   New: {current_data['analyst_review_date']}
+
+🎯 Your LC Date: {MY_LC_DATE}
+   Status: {"✅ CURRENT!" if my_date_is_current else f"Waiting (processing {current_data['analyst_review_date']})"}
+
+✅ DOL updated their data AND processing moved forward!
+
+Check the full details at: {FLAG_URL}
+
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
+            """
+        
+        save_current_data(current_data)
+        send_notification(subject, message)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'Both dates changed',
+                'previous': previous_data,
+                'current': current_data,
+                'my_lc_date': MY_LC_DATE,
+                'my_date_is_current': my_date_is_current
+            })
+        }
+    
+    elif as_of_changed and not analyst_date_changed:
+        # Only "as of" changed - Data refreshed but no progress
+        subject = "📊 FLAG UPDATE: Data Refreshed (No Progress Yet)"
+        message = f"""
+FLAG DOL Processing Times - Data Updated
+
+📅 DOL refreshed their data, but processing hasn't moved forward yet.
+
+Data Last Updated (as of):
+   Previous: {previous_data['as_of_date']}
+   New: {current_data['as_of_date']}
+
+📊 Analyst Review Date (unchanged):
+   Still: {current_data['analyst_review_date']}
+
+🎯 Your LC Date: {MY_LC_DATE}
+   Status: {"✅ Already current!" if my_date_is_current else f"Waiting (currently at {current_data['analyst_review_date']})"}
+
+ℹ️ This is normal - DOL updates data periodically even when processing 
+   dates don't change. It confirms the data is current.
+
+Check the site at: {FLAG_URL}
+
+Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
+        """
+        
+        save_current_data(current_data)
+        send_notification(subject, message)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'As of date changed, analyst date unchanged',
+                'previous': previous_data,
+                'current': current_data,
+                'my_lc_date': MY_LC_DATE,
+                'my_date_is_current': my_date_is_current
+            })
+        }
+    
+    elif not as_of_changed and analyst_date_changed:
+        # Only Analyst Review changed
+        # Check if this made YOUR date current
+        if my_date_is_current and not is_date_current_or_past(previous_data['analyst_review_date'], MY_LC_DATE):
+            # YOUR DATE JUST BECAME CURRENT!
+            subject = "🎉🎊 HOORAY! Your LC Date is NOW CURRENT! 🎊🎉"
+            message = f"""
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
 ║   🎉🎉🎉 CONGRATULATIONS! 🎉🎉🎉                            ║
@@ -189,9 +424,13 @@ FLAG DOL Processing Times Update
 
 ✅ The Analyst Review date has reached YOUR priority date!
 
-Your LC Date: {MY_LC_DATE}
-Current Analyst Review Date: {current_date}
-Previous Date: {previous_date}
+📊 Analyst Review Date:
+   Previous: {previous_data['analyst_review_date']}
+   New: {current_data['analyst_review_date']}
+
+🎯 Your LC Date: {MY_LC_DATE}
+
+📅 Data Last Updated (as of): {current_data['as_of_date']}
 
 🚀 This means your PERM application should now be in the 
    queue for processing!
@@ -201,90 +440,51 @@ NEXT STEPS:
 2. Check your PERM case status regularly
 3. Coordinate with your attorney/HR
 
-Check the full details at:
-{FLAG_URL}
+Check the full details at: {FLAG_URL}
 
 Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
 
 🎊 Best of luck with your green card journey! 🎊
-                """
-            else:
-                subject = "🎉 FLAG Analyst Review Date UPDATED!"
-                message = f"""
-FLAG DOL Processing Times Update Alert
-
-✅ The Analyst Review date has MOVED!
-
-Previous Date: {previous_date}
-New Date: {current_date}
-Your LC Date: {MY_LC_DATE}
-
-📊 Progress: The date is getting closer to your LC date!
-
-This means PERM applications are being processed faster!
-
-Check the full details at:
-{FLAG_URL}
-
-Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
-                """
+            """
         else:
-            # First time running
-            if my_date_is_current:
-                subject = "🎉 FLAG Monitor Started - Your LC Date is ALREADY Current!"
-                message = f"""
-FLAG DOL Processing Times Monitor is now active!
+            subject = "🎉 FLAG UPDATE: Processing Date Moved!"
+            message = f"""
+FLAG DOL Processing Times - PROCESSING MOVED FORWARD
 
-🎊 GREAT NEWS: Your LC date is ALREADY current!
+📊 The Analyst Review date changed!
 
-Your LC Date: {MY_LC_DATE}
-Current Analyst Review Date: {current_date}
+Analyst Review Date:
+   Previous: {previous_data['analyst_review_date']}
+   New: {current_data['analyst_review_date']}
 
-Your PERM application should already be in the processing queue!
+🎯 Your LC Date: {MY_LC_DATE}
+   Status: {"✅ CURRENT!" if my_date_is_current else f"Getting closer! (now at {current_data['analyst_review_date']})"}
 
-You will receive notifications:
-- Every day at 6 AM and 6 PM (status update)
-- Immediately when the date changes
+📅 Data Last Updated (as of): {current_data['as_of_date']}
 
-Check the site at: {FLAG_URL}
+✅ PERM applications are being processed faster!
 
-Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
-                """
-            else:
-                subject = "FLAG Monitor Started"
-                message = f"""
-FLAG DOL Processing Times Monitor is now active!
-
-Current Analyst Review Date: {current_date}
-Your LC Date: {MY_LC_DATE}
-
-You will receive notifications:
-- Every day at 6 AM and 6 PM (status update)
-- Immediately when the date changes
-- Special alert when your LC date becomes current!
-
-Check the site at: {FLAG_URL}
+Check the full details at: {FLAG_URL}
 
 Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
-                """
+            """
         
-        # Save new date
-        save_current_date(current_date)
+        save_current_data(current_data)
         send_notification(subject, message)
         
         return {
             'statusCode': 200,
             'body': json.dumps({
-                'message': 'Date changed',
-                'previous': previous_date,
-                'current': current_date,
+                'message': 'Analyst date changed, as of date unchanged',
+                'previous': previous_data,
+                'current': current_data,
                 'my_lc_date': MY_LC_DATE,
                 'my_date_is_current': my_date_is_current
             })
         }
     
     else:
-        # Date hasn't changed - send regular status update
+        # Nothing changed - Regular status update
         if my_date_is_current:
             subject = "FLAG Monitor: Your LC Date is Current ✅"
             message = f"""
@@ -292,9 +492,11 @@ FLAG DOL Processing Times - Daily Check
 
 🎉 REMINDER: Your LC date is CURRENT!
 
-Your LC Date: {MY_LC_DATE}
-Analyst Review Date: {current_date}
-Status: No change since last check
+📅 Data Last Updated (as of): {current_data['as_of_date']}
+📊 Analyst Review Date: {current_data['analyst_review_date']}
+🎯 Your LC Date: {MY_LC_DATE}
+
+Status: No changes since last check
 
 Your application should be in the processing queue.
 Keep checking for any updates from DOL!
@@ -306,17 +508,20 @@ Check the site at: {FLAG_URL}
 Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
             """
         else:
-            subject = "FLAG Monitor Status: No Change"
+            subject = "FLAG Monitor Status: No Changes"
             message = f"""
 FLAG DOL Processing Times - Daily Check
 
-📊 Current Status:
-Analyst Review Date: {current_date}
-Your LC Date: {MY_LC_DATE}
-Status: No change since last check
+📊 Current Status (No changes):
 
-The date is still processing PERM applications filed in {current_date}.
-Waiting for it to reach {MY_LC_DATE}...
+📅 Data Last Updated (as of): {current_data['as_of_date']}
+📊 Analyst Review Date: {current_data['analyst_review_date']}
+🎯 Your LC Date: {MY_LC_DATE}
+
+Status: No changes since last check
+
+Currently processing: {current_data['analyst_review_date']}
+Waiting for it to reach: {MY_LC_DATE}
 
 Next check: In 12 hours
 
@@ -330,8 +535,8 @@ Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
         return {
             'statusCode': 200,
             'body': json.dumps({
-                'message': 'No change',
-                'current': current_date,
+                'message': 'No changes',
+                'current': current_data,
                 'my_lc_date': MY_LC_DATE,
                 'my_date_is_current': my_date_is_current
             })
