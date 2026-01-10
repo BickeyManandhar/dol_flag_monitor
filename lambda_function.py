@@ -64,6 +64,82 @@ def is_date_current_or_past(current_analyst_date, my_date):
     mine = parse_date_to_comparable(my_date)
     return analyst >= mine
 
+def calculate_months_difference(current_analyst_date, my_date):
+    """
+    Calculate how many months until my_date becomes current
+    Returns:
+    - 0 if already current or past
+    - Positive number if waiting (e.g., 2 means "2 months away")
+    - Negative number if analyst date is ahead of my date
+    """
+    analyst = parse_date_to_comparable(current_analyst_date)
+    mine = parse_date_to_comparable(my_date)
+    
+    if analyst >= mine:
+        return 0  # Already current!
+    
+    # Calculate difference
+    year_diff = mine[0] - analyst[0]
+    month_diff = mine[1] - analyst[1]
+    
+    total_months = (year_diff * 12) + month_diff
+    return total_months
+
+def get_progress_visual(months_away):
+    """
+    Create a visual progress indicator
+    Returns a formatted string with progress bar and status
+    """
+    if months_away == 0:
+        return """
+╔══════════════════════════════════════════════════╗
+║  ✅✅✅  YOUR DATE IS CURRENT!  ✅✅✅          ║
+╚══════════════════════════════════════════════════╝
+"""
+    elif months_away == 1:
+        return """
+╔══════════════════════════════════════════════════╗
+║  🔥🔥  ONLY 1 MONTH AWAY!  🔥🔥                 ║
+╚══════════════════════════════════════════════════╝
+Progress: [████████████████████░░] 95%
+"""
+    elif months_away == 2:
+        return """
+╔══════════════════════════════════════════════════╗
+║  ⏰  2 MONTHS AWAY - Getting Close!  ⏰         ║
+╚══════════════════════════════════════════════════╝
+Progress: [██████████████████░░░░] 90%
+"""
+    elif months_away <= 3:
+        return f"""
+╔══════════════════════════════════════════════════╗
+║  📊  {months_away} MONTHS AWAY - Almost There!  📊           ║
+╚══════════════════════════════════════════════════╝
+Progress: [████████████████░░░░░░] 80%
+"""
+    elif months_away <= 6:
+        progress_pct = max(10, 100 - (months_away * 15))
+        filled = int(progress_pct / 5)
+        empty = 20 - filled
+        bar = '█' * filled + '░' * empty
+        return f"""
+╔══════════════════════════════════════════════════╗
+║  ⏳  {months_away} MONTHS AWAY  ⏳                         ║
+╚══════════════════════════════════════════════════╝
+Progress: [{bar}] {progress_pct}%
+"""
+    else:
+        progress_pct = max(5, 100 - (months_away * 10))
+        filled = int(progress_pct / 5)
+        empty = 20 - filled
+        bar = '█' * filled + '░' * empty
+        return f"""
+╔══════════════════════════════════════════════════╗
+║  📅  {months_away} MONTHS AWAY  📅                         ║
+╚══════════════════════════════════════════════════╝
+Progress: [{bar}] {progress_pct}%
+"""
+
 def get_current_processing_data():
     """
     Scrape the FLAG website to get BOTH:
@@ -234,6 +310,8 @@ def lambda_handler(event, context):
             message = f"""
 FLAG DOL Processing Times Monitor is now active!
 
+{get_progress_visual(0)}
+
 🎊 GREAT NEWS: Your LC date is ALREADY current!
 
 📅 Data Last Updated (as of): {current_data['as_of_date']}
@@ -245,25 +323,31 @@ Your PERM application should already be in the processing queue!
 Twice daily (6 AM & 6 PM), you'll be notified of:
 - Any changes to the "as of" date (DOL data refreshes)
 - Any changes to the Analyst Review date (processing progress)
-- When your LC date becomes current
+- Current status even if nothing changes
 
 Check the site at: {FLAG_URL}
 
 Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
             """
         else:
+            months_away = calculate_months_difference(current_data['analyst_review_date'], MY_LC_DATE)
             subject = "FLAG Monitor Started"
             message = f"""
 FLAG DOL Processing Times Monitor is now active!
+
+{get_progress_visual(months_away)}
 
 📅 Data Last Updated (as of): {current_data['as_of_date']}
 📊 Analyst Review Date: {current_data['analyst_review_date']}
 🎯 Your LC Date: {MY_LC_DATE}
 
-You will receive notifications when:
-- "as of" date changes (DOL updates data)
-- Analyst Review date changes (processing moves)
+⏳ Estimated Wait: {months_away} month{"s" if months_away != 1 else ""} until your date is current
+
+Twice daily (6 AM & 6 PM), you'll be notified of:
+- Any changes to the "as of" date (DOL data refreshes)
+- Any changes to the Analyst Review date (processing progress)
 - Special alert when your LC date becomes current!
+- Current status even if nothing changes
 
 Check the site at: {FLAG_URL}
 
@@ -327,11 +411,14 @@ Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
 🎊 Best of luck with your green card journey! 🎊
             """
         else:
+            months_away = calculate_months_difference(current_data['analyst_review_date'], MY_LC_DATE)
             subject = "🎉 FLAG UPDATE: Both Dates Changed!"
             message = f"""
 FLAG DOL Processing Times - IMPORTANT UPDATE
 
 🎉 BOTH dates have changed!
+
+{get_progress_visual(months_away) if months_away > 0 else ""}
 
 📅 Data Last Updated (as of):
    Previous: {previous_data['as_of_date']}
@@ -342,7 +429,7 @@ FLAG DOL Processing Times - IMPORTANT UPDATE
    New: {current_data['analyst_review_date']}
 
 🎯 Your LC Date: {MY_LC_DATE}
-   Status: {"✅ CURRENT!" if my_date_is_current else f"Waiting (processing {current_data['analyst_review_date']})"}
+   Status: {"✅ CURRENT!" if my_date_is_current else f"{months_away} month{'s' if months_away != 1 else ''} away"}
 
 ✅ DOL updated their data AND processing moved forward!
 
@@ -367,9 +454,12 @@ Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
     
     elif as_of_changed and not analyst_date_changed:
         # Only "as of" changed - Data refreshed but no progress
+        months_away = calculate_months_difference(current_data['analyst_review_date'], MY_LC_DATE)
         subject = "📊 FLAG UPDATE: Data Refreshed (No Progress Yet)"
         message = f"""
 FLAG DOL Processing Times - Data Updated
+
+{get_progress_visual(months_away) if months_away > 0 else ""}
 
 📅 DOL refreshed their data, but processing hasn't moved forward yet.
 
@@ -381,7 +471,7 @@ Data Last Updated (as of):
    Still: {current_data['analyst_review_date']}
 
 🎯 Your LC Date: {MY_LC_DATE}
-   Status: {"✅ Already current!" if my_date_is_current else f"Waiting (currently at {current_data['analyst_review_date']})"}
+   Status: {"✅ Already current!" if my_date_is_current else f"{months_away} month{'s' if months_away != 1 else ''} away"}
 
 ℹ️ This is normal - DOL updates data periodically even when processing 
    dates don't change. It confirms the data is current.
@@ -447,9 +537,12 @@ Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
 🎊 Best of luck with your green card journey! 🎊
             """
         else:
+            months_away = calculate_months_difference(current_data['analyst_review_date'], MY_LC_DATE)
             subject = "🎉 FLAG UPDATE: Processing Date Moved!"
             message = f"""
 FLAG DOL Processing Times - PROCESSING MOVED FORWARD
+
+{get_progress_visual(months_away)}
 
 📊 The Analyst Review date changed!
 
@@ -458,7 +551,7 @@ Analyst Review Date:
    New: {current_data['analyst_review_date']}
 
 🎯 Your LC Date: {MY_LC_DATE}
-   Status: {"✅ CURRENT!" if my_date_is_current else f"Getting closer! (now at {current_data['analyst_review_date']})"}
+   Status: {"✅ CURRENT!" if my_date_is_current else f"Getting closer! Only {months_away} month{'s' if months_away != 1 else ''} away!"}
 
 📅 Data Last Updated (as of): {current_data['as_of_date']}
 
@@ -508,15 +601,20 @@ Check the site at: {FLAG_URL}
 Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
             """
         else:
+            months_away = calculate_months_difference(current_data['analyst_review_date'], MY_LC_DATE)
             subject = "FLAG Monitor Status: No Changes"
             message = f"""
 FLAG DOL Processing Times - Daily Check
+
+{get_progress_visual(months_away)}
 
 📊 Current Status (No changes):
 
 📅 Data Last Updated (as of): {current_data['as_of_date']}
 📊 Analyst Review Date: {current_data['analyst_review_date']}
 🎯 Your LC Date: {MY_LC_DATE}
+
+⏳ Estimated Wait: {months_away} month{"s" if months_away != 1 else ""} until your date is current
 
 Status: No changes since last check
 
