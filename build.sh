@@ -27,7 +27,7 @@ rm -rf build
 mkdir -p build/lambda
 
 # Copy Lambda function code
-cp ../flag_monitor/lambda_function.py build/lambda/
+cp ../dol_flag_monitor/lambda_function.py build/lambda/
 
 # Create zip file for Lambda function
 cd build/lambda
@@ -42,7 +42,7 @@ echo -e "${BLUE}Step 2: Creating Lambda Layer with dependencies...${NC}"
 mkdir -p build/layer/python
 
 # Install dependencies into layer directory
-pip install -q \
+pip3 install -q \
     requests==2.31.0 \
     beautifulsoup4==4.12.2 \
     -t build/layer/python \
