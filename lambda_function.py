@@ -163,17 +163,19 @@ def get_current_processing_data():
         as_of_date = None
         
         # Search for heading or paragraph with "as of"
+        # IMPORTANT: Look specifically for "PERM Processing Times" to avoid matching other programs
         text_elements = soup.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'div'])
         for element in text_elements:
             text = element.get_text(strip=True)
-            if 'as of' in text.lower() and ('perm' in text.lower() or 'processing' in text.lower()):
+            # Must contain both "PERM" and "as of" (not just "processing")
+            if 'as of' in text.lower() and 'perm' in text.lower() and 'processing' in text.lower():
                 # Extract date using regex
                 # Pattern 1: (as of MM/DD/YYYY)
                 match = re.search(r'as of\s+(\d{1,2}/\d{1,2}/\d{4})', text, re.IGNORECASE)
                 if match:
                     as_of_date = match.group(1)
                     break
-                
+
                 # Pattern 2: (as of Month DD, YYYY)
                 match = re.search(r'as of\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})', text, re.IGNORECASE)
                 if match:
