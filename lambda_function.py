@@ -628,8 +628,9 @@ Check the site at: {FLAG_URL}
 Timestamp: {now_et().strftime('%Y-%m-%d %I:%M %p %Z')}
             """
         
+        save_current_data(current_data)
         send_notification(subject, message)
-        
+
         return {
             'statusCode': 200,
             'body': json.dumps({
